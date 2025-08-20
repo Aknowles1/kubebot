@@ -1,0 +1,37 @@
+name: "KubePolicy PR Bot"
+description: "Static policy checks for Kubernetes manifests on PRs with annotations and a summary comment."
+author: "KubePolicy PR Bot"
+inputs:
+  severity_threshold:
+    description: "Threshold to fail the job (error or warning)"
+    required: false
+    default: "error"
+  include_glob:
+    description: "Comma-separated glob(s) to include"
+    required: false
+    default: "**/*.yml,**/*.yaml"
+  exclude_glob:
+    description: "Comma-separated glob(s) to exclude"
+    required: false
+    default: ""
+  post_pr_comment:
+    description: "Post a single PR comment with summary and suggestions"
+    required: false
+    default: "true"
+  github_token:
+    description: "GitHub token (optional, used to post comments)"
+    required: false
+    default: ""
+runs:
+  using: "docker"
+  image: "Dockerfile"
+  env:
+    INPUT_SEVERITY_THRESHOLD: "${{ inputs.severity_threshold }}"
+    INPUT_INCLUDE_GLOB: "${{ inputs.include_glob }}"
+    INPUT_EXCLUDE_GLOB: "${{ inputs.exclude_glob }}"
+    INPUT_POST_PR_COMMENT: "${{ inputs.post_pr_comment }}"
+    INPUT_GITHUB_TOKEN: "${{ inputs.github_token }}"
+branding:
+  color: "blue"
+  icon: "shield"
+

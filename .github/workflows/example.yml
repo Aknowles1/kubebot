@@ -1,0 +1,24 @@
+name: KubePolicy PR Bot
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  kubepolicy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # needed for reliable diff
+
+      - name: KubePolicy PR Bot
+        uses: ./
+        with:
+          severity_threshold: error
+          include_glob: "**/*.yml,**/*.yaml"
+          exclude_glob: ""
+          post_pr_comment: true
+          github_token: "${{ secrets.GITHUB_TOKEN }}"
+
