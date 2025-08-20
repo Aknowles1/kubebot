@@ -393,17 +393,36 @@ def main() -> int:
     severity_threshold = (os.getenv("INPUT_SEVERITY_THRESHOLD", "error") or "error").strip().lower()
     post_comment = get_env_bool("INPUT_POST_PR_COMMENT", True)
     github_token = os.getenv("INPUT_GITHUB_TOKEN", "").strip()
+    json_output_path = os.getenv("KPB_JSON_OUTPUT", "").strip()
 
-    changed = get_changed_files(event)
-    candidates = []
-    for path in changed:
-        if not is_k8s_yaml_file(path):
-            continue
-        if include_globs and not match_any(path, include_globs):
-            continue
-        if exclude_globs and match_any(path, exclude_globs):
-            continue
-        candidates.append(path)
+    # Local override: allow specifying file globs to scan explicitly
+    override_globs = compile_globs(os.getenv("KPB_FILE_GLOBS", ""))
+
+    candidates: List[str] = []
+    if override_globs:
+        import glob as _glob
+        seen = set()
+        for pat in override_globs:
+            for path in _glob.glob(pat, recursive=True):
+                if path in seen:
+                    continue
+                seen.add(path)
+                if not is_k8s_yaml_file(path):
+                    continue
+                if exclude_globs and match_any(path, exclude_globs):
+                    continue
+                candidates.append(path)
+        debug(f"Using override globs, found {len(candidates)} file(s)")
+    else:
+        changed = get_changed_files(event)
+        for path in changed:
+            if not is_k8s_yaml_file(path):
+                continue
+            if include_globs and not match_any(path, include_globs):
+                continue
+            if exclude_globs and match_any(path, exclude_globs):
+                continue
+            candidates.append(path)
 
     if not candidates:
         debug("No matching YAML files to scan.")
@@ -437,6 +456,15 @@ def main() -> int:
         "per_file": per_file,
     }
 
+    # Optional JSON summary output
+    if json_output_path:
+        try:
+            with open(json_output_path, "w", encoding="utf-8") as jf:
+                json.dump(summary, jf, indent=2, sort_keys=True)
+            debug(f"Wrote JSON summary to {json_output_path}")
+        except Exception as e:
+            debug(f"Failed to write JSON summary: {e}")
+
     if post_comment and event.get("pull_request"):
         comment_body = build_comment(summary)
         if github_token:
@@ -457,4 +485,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

@@ -1,0 +1,10 @@
+repos:
+  - repo: local
+    hooks:
+      - id: kubepolicy-scan
+        name: KubePolicy PR Bot (pre-commit)
+        entry: scripts/scan_files.sh
+        language: system
+        pass_filenames: true
+        files: \.(ya?ml)$
+        stages: [commit]
