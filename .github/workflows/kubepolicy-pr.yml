@@ -3,6 +3,8 @@ name: KubePolicy PR Scan
 on:
   pull_request_target:
     types: [opened, synchronize, reopened]
+  pull_request:
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: read
@@ -13,8 +15,16 @@ jobs:
   kubepolicy:
     runs-on: ubuntu-latest
     steps:
-      # Safe pattern for forked PRs: checkout PR HEAD content, but run only trusted action code
-      - name: Checkout PR HEAD
+      # Same-repo PRs (runs from PR branch)
+      - name: Checkout PR (same-repo)
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Forked PRs (runs from base repo, safe pattern)
+      - name: Checkout PR HEAD (fork-safe)
+        if: github.event_name == 'pull_request_target'
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -22,11 +32,18 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
 
-      # Ensure local git has base ref under 'origin/<base>' so the action's diff works
-      - name: Prepare base ref for diff
+      # Ensure local git has base ref under 'origin/<base>' so the action's diff works (fork-safe)
+      - name: Prepare base ref for diff (fork-safe)
+        if: github.event_name == 'pull_request_target'
         run: |
           git remote set-url origin https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git
           git fetch --depth=1 origin ${{ github.event.pull_request.base.ref }}
+
+      # Same-repo: fetch base ref to satisfy origin/<base>...HEAD diff
+      - name: Prepare base ref for diff (same-repo)
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --depth=1 origin ${{ github.base_ref }}
 
       - name: KubePolicy PR Bot
         uses: Aknowles1/kubebot@v1.0.0
@@ -38,7 +55,7 @@ jobs:
           severity_threshold: error
           include_glob: "**/*.yml,**/*.yaml"
           exclude_glob: "samples/**/*"
-          post_pr_comment: true
+          post_pr_comment: ${{ github.event_name == 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository }}
           github_token: "${{ github.token }}"
 
       - name: Debug - can token comment?
