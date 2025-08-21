@@ -14,7 +14,7 @@ Local (Python):
 pip install -r requirements.txt
 KPB_FILE_GLOBS="samples/**/*.yaml" INPUT_POST_PR_COMMENT=false python src/main.py
 ```
- 
+
 GitHub Action (Docker):
 
 ```yaml
