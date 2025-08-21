@@ -52,9 +52,13 @@ def get_changed_files(event: Dict[str, Any]) -> List[str]:
                 if rc == 0:
                     files = [line.strip() for line in out.splitlines() if line.strip()]
             if not files:
-                debug("Falling back to all repo files due to diff failure")
-                # As a last resort, scan all files (could be noisy)
-                files = [str(p) for p in repo_root.rglob("*") if p.is_file()]
+                if get_env_bool("KPB_NO_FALLBACK_ALL", False):
+                    debug("Diff failed; KPB_NO_FALLBACK_ALL=true, skipping repo-wide scan")
+                    files = []
+                else:
+                    debug("Falling back to all repo files due to diff failure")
+                    # As a last resort, scan all files (could be noisy)
+                    files = [str(p) for p in repo_root.rglob("*") if p.is_file()]
     else:
         # Non-PR events: changed files in last commit range
         rc, out, err = run(["git", "diff", "--name-only", "HEAD^...HEAD"])

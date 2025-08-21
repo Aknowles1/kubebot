@@ -30,9 +30,11 @@ jobs:
 
       - name: KubePolicy PR Bot
         uses: Aknowles1/kubebot@v1.0.0
+        env:
+          KPB_NO_FALLBACK_ALL: 'true'
         with:
           severity_threshold: error
           include_glob: "**/*.yml,**/*.yaml"
-          exclude_glob: ""
+          exclude_glob: "samples/**/*"
           post_pr_comment: true
           github_token: "${{ secrets.GITHUB_TOKEN }}"

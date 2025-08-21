@@ -84,13 +84,19 @@ steps:
       git remote set-url origin https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git
       git fetch --depth=1 origin ${{ github.event.pull_request.base.ref }}
   - uses: Aknowles1/kubebot@v1.0.0
+    env:
+      KPB_NO_FALLBACK_ALL: 'true'   # avoid scanning entire repo if diff not available
     with:
       severity_threshold: error
       include_glob: "**/*.yml,**/*.yaml"
-      exclude_glob: ""
+      exclude_glob: "samples/**/*"
       post_pr_comment: true
       github_token: "${{ secrets.GITHUB_TOKEN }}"
 ```
+
+Tip: Prevent noisy scans when PR diffs aren’t available
+- Set `KPB_NO_FALLBACK_ALL=true` to skip repo-wide scanning on diff failures (especially useful for forked PRs).
+- Use `exclude_glob` (e.g., `samples/**/*`) to ignore known fixture directories.
 
 Docker-based GitHub Action that scans changed Kubernetes YAML manifests on pull requests and enforces baseline security and hygiene policies. It emits GitHub Annotations for each finding and can post a single PR comment with a summary and suggested YAML patches.
 
