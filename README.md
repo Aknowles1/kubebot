@@ -55,6 +55,54 @@ jobs:
           github_token: "${{ secrets.GITHUB_TOKEN }}"
 ```
 
+Scan a specific directory (e.g., manifests/):
+
+```yaml
+name: KubePolicy (manifests only)
+on: { pull_request: { types: [opened, synchronize, reopened] } }
+permissions: { contents: read, pull-requests: write, issues: write }
+jobs:
+  kubepolicy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: Aknowles1/kubebot@v1.0.0
+        env:
+          KPB_FILE_GLOBS: 'manifests/**/*.yaml,manifests/**/*.yml'  # force-scan these paths
+        with:
+          severity_threshold: error
+          include_glob: "**/*.yml,**/*.yaml"
+          exclude_glob: ""
+          post_pr_comment: true
+          github_token: "${{ secrets.GITHUB_TOKEN }}"
+```
+
+Scan the entire repo:
+
+```yaml
+name: KubePolicy (entire repo)
+on: { pull_request: { types: [opened, synchronize, reopened] } }
+permissions: { contents: read, pull-requests: write, issues: write }
+jobs:
+  kubepolicy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: Aknowles1/kubebot@v1.0.0
+        # Option A (default): scans only changed files via git diff
+        with:
+          severity_threshold: error
+          include_glob: "**/*.yml,**/*.yaml"
+          exclude_glob: ""
+          post_pr_comment: true
+          github_token: "${{ secrets.GITHUB_TOKEN }}"
+        # Option B (force full scan every run): uncomment to ignore git diff
+        # env:
+        #   KPB_FILE_GLOBS: '**/*.yaml,**/*.yml'
+```
+
 Permissions gotcha (for PR comments):
 
 - In repo settings → Actions → General → Workflow permissions, set “Read and write permissions”.
