@@ -1,32 +1,32 @@
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: web-insecure
-spec:
-  replicas: 1
-  selector:
-    matchLabels: { app: web-insecure }
-  template:
-    metadata:
-      labels: { app: web-insecure }
-    spec:
-      hostNetwork: true
-      hostPID: true
-      hostIPC: true
-      volumes:
-        - name: host-vol
-          hostPath:
-            path: /etc
-      containers:
-        - name: web
-          image: nginx:latest
-          securityContext:
-            privileged: true
-            capabilities:
-              add: ["SYS_ADMIN", "NET_ADMIN"]
-          volumeMounts:
-            - name: host-vol
-              mountPath: /host-etc
-              readOnly: false
-          # Missing resources and probes intentionally
+# apiVersion: apps/v1
+# kind: Deployment
+# metadata:
+#   name: web-insecure
+# spec:
+#   replicas: 1
+#   selector:
+#     matchLabels: { app: web-insecure }
+#   template:
+#     metadata:
+#       labels: { app: web-insecure }
+#     spec:
+#       hostNetwork: true
+#       hostPID: true
+#       hostIPC: true
+#       volumes:
+#         - name: host-vol
+#           hostPath:
+#             path: /etc
+#       containers:
+#         - name: web
+#           image: nginx:latest
+#           securityContext:
+#             privileged: true
+#             capabilities:
+#               add: ["SYS_ADMIN", "NET_ADMIN"]
+#           volumeMounts:
+#             - name: host-vol
+#               mountPath: /host-etc
+#               readOnly: false
+#           # Missing resources and probes intentionally
 
