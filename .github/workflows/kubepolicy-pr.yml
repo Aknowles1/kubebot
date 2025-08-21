@@ -41,7 +41,7 @@ jobs:
           post_pr_comment: true
           github_token: "${{ github.token }}"
 
-      - name: Debug: can token comment?
+      - name: Debug - can token comment?
         if: always()
         uses: actions/github-script@v7
         with:
