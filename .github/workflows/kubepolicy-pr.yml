@@ -32,6 +32,8 @@ jobs:
         uses: Aknowles1/kubebot@v1.0.0
         env:
           KPB_NO_FALLBACK_ALL: 'true'
+          # Explicit globs ensure consistent scanning under pull_request_target
+          KPB_FILE_GLOBS: 'manifests/**/*.yaml,manifests/**/*.yml'
         with:
           severity_threshold: error
           include_glob: "**/*.yml,**/*.yaml"
