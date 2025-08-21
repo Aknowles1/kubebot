@@ -7,6 +7,7 @@ on:
 permissions:
   contents: read
   pull-requests: write
+  issues: write
 
 jobs:
   kubepolicy:
@@ -25,7 +26,7 @@ jobs:
       - name: Prepare base ref for diff
         run: |
           git remote set-url origin https://github.com/${{ github.repository }}.git
-          git fetch --depth=1 origin ${{ github.base_ref }}
+          git fetch --depth=1 origin ${{ github.event.pull_request.base.ref }}
 
       - name: KubePolicy PR Bot
         uses: Aknowles1/kubebot@v1.0.0
