@@ -8,7 +8,6 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
 
 jobs:
   kubepolicy:
@@ -19,12 +18,37 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: KubePolicy PR Bot
+      - name: KubePolicy (secure samples should pass)
         uses: Aknowles1/kubebot@v1.0.0
+        env:
+          KPB_FILE_GLOBS: samples/good/*.yaml
         with:
           severity_threshold: error
           include_glob: "**/*.yml,**/*.yaml"
           exclude_glob: ""
-          post_pr_comment: true
-          github_token: "${{ secrets.GITHUB_TOKEN }}"
+          post_pr_comment: false
 
+      - name: KubePolicy (insecure samples should fail, but continue)
+        uses: Aknowles1/kubebot@v1.0.0
+        continue-on-error: true
+        env:
+          KPB_FILE_GLOBS: samples/bad/*.yaml
+          KPB_JSON_OUTPUT: kubepolicy-summary.json
+        with:
+          severity_threshold: error
+          include_glob: "**/*.yml,**/*.yaml"
+          exclude_glob: ""
+          post_pr_comment: false
+
+      - name: Validate expected findings
+        run: |
+          python3 - << 'PY'
+          import json, sys
+          with open('kubepolicy-summary.json') as f:
+              s = json.load(f)
+          assert s['files_scanned'] >= 1, 'No files scanned'
+          # Expected from samples/bad/deployment-insecure.yaml
+          assert s['error_count'] == 8, f"Unexpected error_count: {s['error_count']}"
+          assert s['warning_count'] == 5, f"Unexpected warning_count: {s['warning_count']}"
+          print('KubePolicy findings validated: OK')
+          PY
