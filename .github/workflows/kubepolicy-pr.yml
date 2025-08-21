@@ -1,7 +1,7 @@
 name: KubePolicy PR Scan
 
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, synchronize, reopened]
 
 permissions:
@@ -12,10 +12,20 @@ jobs:
   kubepolicy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      # Safe pattern for forked PRs: checkout PR HEAD content, but run only trusted action code
+      - name: Checkout PR HEAD
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      # Ensure local git has base ref under 'origin/<base>' so the action's diff works
+      - name: Prepare base ref for diff
+        run: |
+          git remote set-url origin https://github.com/${{ github.repository }}.git
+          git fetch --depth=1 origin ${{ github.base_ref }}
 
       - name: KubePolicy PR Bot
         uses: Aknowles1/kubebot@v1.0.0
@@ -25,4 +35,3 @@ jobs:
           exclude_glob: ""
           post_pr_comment: true
           github_token: "${{ secrets.GITHUB_TOKEN }}"
-
