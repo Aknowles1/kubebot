@@ -1,5 +1,60 @@
 # KubePolicy PR Bot
 
+## Quickstart
+
+Local (Docker, one-liner):
+
+```bash
+./scripts/run_local.sh "samples/**/*.yaml"
+```
+
+Local (Python):
+
+```bash
+pip install -r requirements.txt
+KPB_FILE_GLOBS="samples/**/*.yaml" INPUT_POST_PR_COMMENT=false python src/main.py
+```
+
+GitHub Action (Docker):
+
+```yaml
+name: KubePolicy PR Bot
+on: { pull_request: { types: [opened, synchronize, reopened] } }
+jobs:
+  kubepolicy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: ./
+        with:
+          severity_threshold: error
+          include_glob: "**/*.yml,**/*.yaml"
+          exclude_glob: ""
+          post_pr_comment: true
+          github_token: "${{ secrets.GITHUB_TOKEN }}"
+```
+
+GitHub Action (Composite):
+
+```yaml
+name: KubePolicy PR Bot (Composite)
+on: { pull_request: { types: [opened, synchronize, reopened] } }
+jobs:
+  kubepolicy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: ./composite
+        with:
+          severity_threshold: error
+          include_glob: "**/*.yml,**/*.yaml"
+          exclude_glob: ""
+          post_pr_comment: true
+          github_token: "${{ secrets.GITHUB_TOKEN }}"
+```
+
 Docker-based GitHub Action that scans changed Kubernetes YAML manifests on pull requests and enforces baseline security and hygiene policies. It emits GitHub Annotations for each finding and can post a single PR comment with a summary and suggested YAML patches.
 
 ## Features
@@ -74,7 +129,7 @@ You can also point `include_glob` to `samples/**/*.yaml` while testing.
 - Optional single PR comment with a summary and suggested patches for common issues (e.g., pin image tags, add resources, enable seccomp, etc.).
 
 ## Notes
-- Line numbers in annotations default to 1 due to YAML parsing without location metadata.
+- Annotations include real line and column numbers via a location-aware YAML parser.
 - The action computes changed files via `git diff origin/<base>...HEAD`; if that fails, it falls back to merge-base and, as a last resort, scans the repo.
 
 ## Development

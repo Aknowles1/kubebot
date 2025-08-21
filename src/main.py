@@ -98,11 +98,218 @@ def load_yaml_documents(path: Path) -> List[Dict[str, Any]]:
         return []
 
 
-def print_annotation(level: str, file: str, message: str):
+# --- Location-aware YAML utilities ---
+def _compose_yaml_documents_with_marks(content: str):
+    try:
+        return list(yaml.compose_all(content))
+    except Exception:
+        return []
+
+
+def _build_line_index(node, base_path=None, out=None):
+    """
+    Build a mapping from a tuple path (keys and indices) to (line, col).
+    Records the position of mapping keys, sequence items, and scalar values.
+    """
+    if out is None:
+        out = {}
+    if base_path is None:
+        base_path = ()
+
+    from yaml.nodes import MappingNode, SequenceNode, ScalarNode
+
+    if isinstance(node, MappingNode):
+        # Record the mapping itself position
+        out[base_path] = (node.start_mark.line + 1, node.start_mark.column + 1)
+        for key_node, val_node in node.value:
+            # Only handle scalar keys
+            if isinstance(key_node, ScalarNode):
+                key = key_node.value
+                key_path = base_path + (key,)
+                out[key_path] = (key_node.start_mark.line + 1, key_node.start_mark.column + 1)
+                _build_line_index(val_node, key_path, out)
+            else:
+                _build_line_index(val_node, base_path, out)
+    elif isinstance(node, SequenceNode):
+        out[base_path] = (node.start_mark.line + 1, node.start_mark.column + 1)
+        for idx, item in enumerate(node.value):
+            item_path = base_path + (idx,)
+            out[item_path] = (item.start_mark.line + 1, item.start_mark.column + 1)
+            _build_line_index(item, item_path, out)
+    else:
+        # Scalar node
+        out[base_path] = (node.start_mark.line + 1, node.start_mark.column + 1)
+    return out
+
+
+def _lookup_line(line_index: Dict[tuple, Tuple[int, int]], path: Tuple[Any, ...], fallback: Tuple[int, int] = (1, 1)) -> Tuple[int, int]:
+    # Try exact path; if missing, walk back to ancestors
+    p = path
+    while p:
+        if p in line_index:
+            return line_index[p]
+        p = p[:-1]
+    return fallback
+
+
+def _resolve_pod_spec_and_path(doc: Dict[str, Any]) -> Tuple[Dict[str, Any], Tuple[Any, ...]]:
+    kind = (doc.get("kind") or "").lower()
+    spec = doc.get("spec") or {}
+    if not isinstance(spec, dict):
+        return {}, ()
+    if kind == "pod":
+        return spec, ("spec",)
+    # Workload kinds
+    if isinstance(spec.get("template"), dict) and isinstance(spec["template"].get("spec"), dict):
+        return spec["template"]["spec"], ("spec", "template", "spec")
+    if kind == "job":
+        tmpl = (spec.get("template") or {})
+        if isinstance(tmpl.get("spec"), dict):
+            return tmpl["spec"], ("spec", "template", "spec")
+    if kind == "cronjob":
+        jt = (spec.get("jobTemplate") or {}).get("spec") or {}
+        if isinstance(jt, dict):
+            t = (jt.get("template") or {}).get("spec") or {}
+            if isinstance(t, dict):
+                return t, ("spec", "jobTemplate", "spec", "template", "spec")
+    return {}, ()
+
+
+
+def print_annotation(level: str, file: str, message: str, line: int = 1, col: int = 1):
     # level: error or warning
-    # No reliable line numbers without a YAML parser with locations; default to line=1
     safe_msg = message.replace("\n", " ")
-    print(f"::{level} file={file},line=1,col=1::{safe_msg}")
+    # Clamp to minimum of 1 to avoid invalid annotations
+    line = int(line) if isinstance(line, int) and line > 0 else 1
+    col = int(col) if isinstance(col, int) and col > 0 else 1
+    print(f"::{level} file={file},line={line},col={col}::{safe_msg}")
+
+
+def check_policies_with_locations(doc: Dict[str, Any], line_index: Dict[tuple, Tuple[int, int]]):
+    """
+    Returns (errors_with_lines, warnings_with_lines) where each list contains
+    tuples of (message, (line, col)).
+    """
+    errors = []  # List[Tuple[str, Tuple[int,int]]]
+    warnings = []
+
+    pod_spec, pod_spec_path = _resolve_pod_spec_and_path(doc)
+    if not isinstance(pod_spec, dict) or not pod_spec_path:
+        return errors, warnings
+
+    # hostNetwork/hostPID/hostIPC
+    for flag in ("hostNetwork", "hostPID", "hostIPC"):
+        if bool(pod_spec.get(flag)):
+            path = pod_spec_path + (flag,)
+            loc = _lookup_line(line_index, path)
+            errors.append((f"{flag} is true", loc))
+
+    containers = list_containers(pod_spec)
+    pod_sc = pod_spec.get("securityContext") or {}
+
+    vol_index = build_volume_index(pod_spec)
+
+    # Helper to find path to containers list
+    containers_path = None
+    for key in ("containers", "initContainers", "ephemeralContainers"):
+        if isinstance(pod_spec.get(key), list):
+            containers_path = pod_spec_path + (key,)
+            break
+
+    for idx, c in enumerate(containers):
+        name = c.get("name") or "<unnamed>"
+        image = c.get("image") or ""
+        sc = c.get("securityContext") or {}
+        c_path = (containers_path + (idx,)) if containers_path is not None else pod_spec_path
+
+        # privileged
+        if isinstance(sc, dict) and bool(sc.get("privileged")):
+            path = c_path + ("securityContext", "privileged")
+            loc = _lookup_line(line_index, path)
+            errors.append((f"container '{name}': securityContext.privileged is true", loc))
+
+        # image latest/no tag
+        if isinstance(image, str) and image:
+            if image_uses_latest_or_no_tag(image):
+                path = c_path + ("image",)
+                loc = _lookup_line(line_index, path)
+                errors.append((f"container '{name}': image '{image}' uses 'latest' or has no tag", loc))
+
+        # missing resources
+        res = c.get("resources") or {}
+        reqs = (res.get("requests") or {}) if isinstance(res, dict) else {}
+        lims = (res.get("limits") or {}) if isinstance(res, dict) else {}
+        if not reqs and not lims:
+            # Point to resources key if present, else container start
+            path = c_path + (("resources",) if "resources" in c else tuple())
+            loc = _lookup_line(line_index, path)
+            errors.append((f"container '{name}': missing both resources.requests and resources.limits", loc))
+
+        # dangerous capabilities
+        dangerous = {"SYS_ADMIN", "NET_ADMIN", "SYS_PTRACE", "DAC_READ_SEARCH"}
+        caps = ((sc.get("capabilities") or {}).get("add") or []) if isinstance(sc, dict) else []
+        found = []
+        if isinstance(caps, list):
+            for cap in caps:
+                if not isinstance(cap, str):
+                    continue
+                n = normalize_cap(cap)
+                if n in dangerous:
+                    found.append(n)
+        if found:
+            path = c_path + ("securityContext", "capabilities", "add")
+            loc = _lookup_line(line_index, path)
+            errors.append((f"container '{name}': capabilities.add includes dangerous caps: {', '.join(sorted(set(found)))}", loc))
+
+        # hostPath volume mounts without readOnly: true
+        vmounts = c.get("volumeMounts") or []
+        if isinstance(vmounts, list):
+            for m_idx, m in enumerate(vmounts):
+                if not isinstance(m, dict):
+                    continue
+                vname = m.get("name")
+                if not vname or vname not in vol_index:
+                    continue
+                vol = vol_index[vname]
+                if isinstance(vol, dict) and isinstance(vol.get("hostPath"), dict):
+                    if not bool(m.get("readOnly")):
+                        path = c_path + ("volumeMounts", m_idx, "readOnly")
+                        # If readOnly key missing, fall back to mount entry
+                        loc = _lookup_line(line_index, path, _lookup_line(line_index, c_path + ("volumeMounts", m_idx)))
+                        errors.append((f"container '{name}': hostPath volumeMount '{vname}' should set readOnly: true", loc))
+
+        # Warnings
+        pod_run_as_nonroot = bool(isinstance(pod_sc, dict) and pod_sc.get("runAsNonRoot") is True)
+        c_run_as_nonroot = bool(isinstance(sc, dict) and sc.get("runAsNonRoot") is True)
+        if not (pod_run_as_nonroot or c_run_as_nonroot):
+            loc = _lookup_line(line_index, c_path + ("securityContext", "runAsNonRoot"), _lookup_line(line_index, c_path))
+            warnings.append((f"container '{name}': missing runAsNonRoot: true (pod or container securityContext)", loc))
+
+        if not (isinstance(sc, dict) and sc.get("readOnlyRootFilesystem") is True):
+            loc = _lookup_line(line_index, c_path + ("securityContext", "readOnlyRootFilesystem"), _lookup_line(line_index, c_path))
+            warnings.append((f"container '{name}': missing readOnlyRootFilesystem: true", loc))
+
+        def has_runtime_default(obj: Dict[str, Any]) -> bool:
+            if not isinstance(obj, dict):
+                return False
+            sp = obj.get("seccompProfile")
+            if not isinstance(sp, dict):
+                return False
+            return (sp.get("type") == "RuntimeDefault")
+
+        if not (has_runtime_default(pod_sc) or has_runtime_default(sc)):
+            # Prefer pod-level seccomp location if exists, else container
+            loc = _lookup_line(line_index, pod_spec_path + ("securityContext", "seccompProfile"), _lookup_line(line_index, c_path + ("securityContext", "seccompProfile"), _lookup_line(line_index, c_path)))
+            warnings.append((f"container '{name}': missing seccompProfile.type: RuntimeDefault (pod or container)", loc))
+
+        if not c.get("livenessProbe"):
+            loc = _lookup_line(line_index, c_path + ("livenessProbe",), _lookup_line(line_index, c_path))
+            warnings.append((f"container '{name}': missing livenessProbe", loc))
+        if not c.get("readinessProbe"):
+            loc = _lookup_line(line_index, c_path + ("readinessProbe",), _lookup_line(line_index, c_path))
+            warnings.append((f"container '{name}': missing readinessProbe", loc))
+
+    return errors, warnings
 
 
 def normalize_cap(cap: str) -> str:
@@ -434,17 +641,38 @@ def main() -> int:
 
     for path in candidates:
         p = Path(path)
-        docs = load_yaml_documents(p)
+        try:
+            with p.open("r", encoding="utf-8") as f:
+                content = f.read()
+        except Exception as e:
+            debug(f"Failed to read {path}: {e}")
+            continue
+
+        docs = [d for d in yaml.safe_load_all(content) if isinstance(d, dict)]
+        nodes = _compose_yaml_documents_with_marks(content)
         file_errors: List[str] = []
         file_warnings: List[str] = []
-        for doc in docs:
-            errs, warns = check_policies(doc, path)
-            file_errors.extend(errs)
-            file_warnings.extend(warns)
-        for e in file_errors:
-            print_annotation("error", path, e)
-        for w in file_warnings:
-            print_annotation("warning", path, w)
+
+        for idx, doc in enumerate(docs):
+            line_index = {}
+            if idx < len(nodes) and nodes[idx] is not None:
+                try:
+                    line_index = _build_line_index(nodes[idx])
+                except Exception:
+                    line_index = {}
+
+            errs_with_loc, warns_with_loc = check_policies_with_locations(doc, line_index)
+
+            # Emit annotations with line info
+            for msg, (ln, col) in errs_with_loc:
+                print_annotation("error", path, msg, ln, col)
+            for msg, (ln, col) in warns_with_loc:
+                print_annotation("warning", path, msg, ln, col)
+
+            # Collect plain strings for summary
+            file_errors.extend([msg for msg, _ in errs_with_loc])
+            file_warnings.extend([msg for msg, _ in warns_with_loc])
+
         total_errors += len(file_errors)
         total_warnings += len(file_warnings)
         per_file[path] = {"errors": file_errors, "warnings": file_warnings}
