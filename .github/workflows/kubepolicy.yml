@@ -1,0 +1,30 @@
+name: KubePolicy PR Bot
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main, master]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  kubepolicy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: KubePolicy PR Bot
+        uses: Aknowles1/kubebot@v1.0.0
+        with:
+          severity_threshold: error
+          include_glob: "**/*.yml,**/*.yaml"
+          exclude_glob: ""
+          post_pr_comment: true
+          github_token: "${{ secrets.GITHUB_TOKEN }}"
+
