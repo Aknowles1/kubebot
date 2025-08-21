@@ -25,7 +25,7 @@ jobs:
       # Ensure local git has base ref under 'origin/<base>' so the action's diff works
       - name: Prepare base ref for diff
         run: |
-          git remote set-url origin https://github.com/${{ github.repository }}.git
+          git remote set-url origin https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git
           git fetch --depth=1 origin ${{ github.event.pull_request.base.ref }}
 
       - name: KubePolicy PR Bot
