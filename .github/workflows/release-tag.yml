@@ -1,0 +1,71 @@
+name: Release Tag
+
+on:
+  pull_request_target:
+    types: [closed]
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    if: >-
+      ${{ github.event.pull_request.merged == true &&
+          (github.event.pull_request.base.ref == 'main' || github.event.pull_request.base.ref == 'master') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout base branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.base.ref }}
+
+      - name: Determine next version and tag
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          git fetch --tags --force --prune origin
+
+          # Decide bump type from PR title
+          title_lc=$(echo "${PR_TITLE}" | tr '[:upper:]' '[:lower:]')
+          bump="patch"
+          if echo "$title_lc" | grep -q "\[major\]"; then
+            bump="major"
+          elif echo "$title_lc" | grep -q "\[minor\]"; then
+            bump="minor"
+          fi
+
+          # Find latest semver tag (vX.Y.Z)
+          latest=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' | sort -V | tail -n1 || true)
+          if [ -z "$latest" ]; then
+            latest="v0.0.0"
+          fi
+          echo "Latest tag: $latest"
+
+          ver=${latest#v}
+          IFS='.' read -r MAJOR MINOR PATCH <<<"$ver"
+
+          case "$bump" in
+            major)
+              MAJOR=$((MAJOR+1)); MINOR=0; PATCH=0 ;;
+            minor)
+              MINOR=$((MINOR+1)); PATCH=0 ;;
+            *)
+              PATCH=$((PATCH+1)) ;;
+          esac
+
+          next="v${MAJOR}.${MINOR}.${PATCH}"
+          echo "Next tag: $next"
+          if git rev-parse "$next" >/dev/null 2>&1; then
+            echo "Tag $next already exists; exiting."
+            exit 0
+          fi
+
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git tag -a "$next" -m "Release $next (PR #${PR_NUMBER}: ${PR_TITLE})"
+          git push origin "$next"
+
