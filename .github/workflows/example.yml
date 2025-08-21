@@ -1,8 +1,9 @@
-name: KubePolicy PR Bot
+name: KubePolicy PR Bot (Example)
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
 
 jobs:
   kubepolicy:
@@ -15,10 +16,11 @@ jobs:
 
       - name: KubePolicy PR Bot
         uses: ./
+        env:
+          KPB_NO_FALLBACK_ALL: 'true'
         with:
           severity_threshold: error
-          include_glob: "**/*.yml,**/*.yaml"
-          exclude_glob: ""
-          post_pr_comment: true
+          include_glob: "manifests/**/*.yml,manifests/**/*.yaml"
+          exclude_glob: "samples/**/*"
+          post_pr_comment: false
           github_token: "${{ secrets.GITHUB_TOKEN }}"
-

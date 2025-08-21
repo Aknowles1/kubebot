@@ -14,7 +14,7 @@ Local (Python):
 pip install -r requirements.txt
 KPB_FILE_GLOBS="samples/**/*.yaml" INPUT_POST_PR_COMMENT=false python src/main.py
 ```
-
+ 
 GitHub Action (Docker):
 
 ```yaml
@@ -54,6 +54,101 @@ jobs:
           post_pr_comment: true
           github_token: "${{ secrets.GITHUB_TOKEN }}"
 ```
+
+Scan a specific directory (e.g., manifests/):
+
+```yaml
+name: KubePolicy (manifests only)
+on: { pull_request: { types: [opened, synchronize, reopened] } }
+permissions: { contents: read, pull-requests: write, issues: write }
+jobs:
+  kubepolicy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: Aknowles1/kubebot@v1.0.0
+        env:
+          KPB_FILE_GLOBS: 'manifests/**/*.yaml,manifests/**/*.yml'  # force-scan these paths
+        with:
+          severity_threshold: error
+          include_glob: "**/*.yml,**/*.yaml"
+          exclude_glob: ""
+          post_pr_comment: true
+          github_token: "${{ secrets.GITHUB_TOKEN }}"
+```
+
+Scan the entire repo:
+
+```yaml
+name: KubePolicy (entire repo)
+on: { pull_request: { types: [opened, synchronize, reopened] } }
+permissions: { contents: read, pull-requests: write, issues: write }
+jobs:
+  kubepolicy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: Aknowles1/kubebot@v1.0.0
+        # Option A (default): scans only changed files via git diff
+        with:
+          severity_threshold: error
+          include_glob: "**/*.yml,**/*.yaml"
+          exclude_glob: ""
+          post_pr_comment: true
+          github_token: "${{ secrets.GITHUB_TOKEN }}"
+        # Option B (force full scan every run): uncomment to ignore git diff
+        # env:
+        #   KPB_FILE_GLOBS: '**/*.yaml,**/*.yml'
+```
+
+Permissions gotcha (for PR comments):
+
+- In repo settings → Actions → General → Workflow permissions, set “Read and write permissions”.
+- In your workflow, include:
+
+```yaml
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write   # comments use the Issues API on PRs
+```
+
+Forked PRs: use `pull_request_target` with safe checkout and fetch base ref so the action can comment while not executing untrusted code:
+
+```yaml
+on: { pull_request_target: { types: [opened, synchronize, reopened] } }
+permissions: { contents: read, pull-requests: write, issues: write }
+steps:
+  - uses: actions/checkout@v4
+    with:
+      fetch-depth: 0
+      repository: ${{ github.event.pull_request.head.repo.full_name }}
+      ref: ${{ github.event.pull_request.head.sha }}
+      persist-credentials: false
+  - name: Prepare base ref for diff
+    run: |
+      git remote set-url origin https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git
+      git fetch --depth=1 origin ${{ github.event.pull_request.base.ref }}
+  - uses: Aknowles1/kubebot@v1.0.0
+    env:
+      KPB_NO_FALLBACK_ALL: 'true'   # avoid scanning entire repo if diff not available
+    with:
+      severity_threshold: error
+      include_glob: "**/*.yml,**/*.yaml"
+      exclude_glob: "samples/**/*"
+      post_pr_comment: true
+      github_token: "${{ github.token }}"  # works in pull_request_target
+
+Notes:
+- The action posts PR comments on both `pull_request` and `pull_request_target` events.
+- If diff fails and `KPB_NO_FALLBACK_ALL=true`, set `KPB_FILE_GLOBS` to your manifest globs to ensure scanning.
+```
+
+Tip: Prevent noisy scans when PR diffs aren’t available
+- Set `KPB_NO_FALLBACK_ALL=true` to skip repo-wide scanning on diff failures (especially useful for forked PRs).
+- Use `exclude_glob` (e.g., `samples/**/*`) to ignore known fixture directories.
 
 Docker-based GitHub Action that scans changed Kubernetes YAML manifests on pull requests and enforces baseline security and hygiene policies. It emits GitHub Annotations for each finding and can post a single PR comment with a summary and suggested YAML patches.
 
