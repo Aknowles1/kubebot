@@ -19,6 +19,5 @@ jobs:
           severity_threshold: error
           include_glob: "**/*.yml,**/*.yaml"
           exclude_glob: ""
-          post_pr_comment: true
+          post_pr_comment: false
           github_token: "${{ secrets.GITHUB_TOKEN }}"
-

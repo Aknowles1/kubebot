@@ -55,6 +55,43 @@ jobs:
           github_token: "${{ secrets.GITHUB_TOKEN }}"
 ```
 
+Permissions gotcha (for PR comments):
+
+- In repo settings → Actions → General → Workflow permissions, set “Read and write permissions”.
+- In your workflow, include:
+
+```yaml
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write   # comments use the Issues API on PRs
+```
+
+Forked PRs: use `pull_request_target` with safe checkout and fetch base ref so the action can comment while not executing untrusted code:
+
+```yaml
+on: { pull_request_target: { types: [opened, synchronize, reopened] } }
+permissions: { contents: read, pull-requests: write, issues: write }
+steps:
+  - uses: actions/checkout@v4
+    with:
+      fetch-depth: 0
+      repository: ${{ github.event.pull_request.head.repo.full_name }}
+      ref: ${{ github.event.pull_request.head.sha }}
+      persist-credentials: false
+  - name: Prepare base ref for diff
+    run: |
+      git remote set-url origin https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git
+      git fetch --depth=1 origin ${{ github.event.pull_request.base.ref }}
+  - uses: Aknowles1/kubebot@v1.0.0
+    with:
+      severity_threshold: error
+      include_glob: "**/*.yml,**/*.yaml"
+      exclude_glob: ""
+      post_pr_comment: true
+      github_token: "${{ secrets.GITHUB_TOKEN }}"
+```
+
 Docker-based GitHub Action that scans changed Kubernetes YAML manifests on pull requests and enforces baseline security and hygiene policies. It emits GitHub Annotations for each finding and can post a single PR comment with a summary and suggested YAML patches.
 
 ## Features
