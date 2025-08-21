@@ -697,7 +697,10 @@ def main() -> int:
         except Exception as e:
             debug(f"Failed to write JSON summary: {e}")
 
-    if post_comment and event.get("pull_request"):
+    # Determine if we should post a PR comment (support pull_request_target as well)
+    event_name = os.getenv("GITHUB_EVENT_NAME", "")
+    is_pr_event = bool(event.get("pull_request")) or event_name in {"pull_request", "pull_request_target"}
+    if post_comment and is_pr_event:
         comment_body = build_comment(summary)
         if github_token:
             try:

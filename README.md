@@ -91,7 +91,11 @@ steps:
       include_glob: "**/*.yml,**/*.yaml"
       exclude_glob: "samples/**/*"
       post_pr_comment: true
-      github_token: "${{ secrets.GITHUB_TOKEN }}"
+      github_token: "${{ github.token }}"  # works in pull_request_target
+
+Notes:
+- The action posts PR comments on both `pull_request` and `pull_request_target` events.
+- If diff fails and `KPB_NO_FALLBACK_ALL=true`, set `KPB_FILE_GLOBS` to your manifest globs to ensure scanning.
 ```
 
 Tip: Prevent noisy scans when PR diffs aren’t available
